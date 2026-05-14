@@ -18,13 +18,13 @@ export default function SearchSection({
           : "Karar Arşivinde Arama Yapın"}
       </div>
 
-      <h1 className="max-w-4xl text-4xl font-bold leading-tight tracking-tight text-[#F8FAFC] md:text-6xl">
-        Emsal kararları tarayıp düzenli bir sonuç ekranı oluşturalım.
-      </h1>
+      <h2 className="max-w-4xl text-4xl font-bold leading-tight tracking-tight text-[#F8FAFC] md:text-6xl">
+        Emsal kararları hızlıca bulun.
+      </h2>
 
       <p className="mt-4 max-w-3xl text-base leading-8 text-[#CBD5E1] md:text-lg">
         {mode === "ask"
-          ? "Doğal dille sorunuzu yazın. Sistem kısa bir yorum oluştursun ve en yakın 5 kararı göstersin."
+          ? "Anahtar kelime, mahkeme, yıl veya esas-karar numarasıyla karar arşivinde arama yapın."
           : "Anahtar kelime, mahkeme, yıl veya esas-karar numarasıyla karar arşivini filtreleyin."}
       </p>
 
