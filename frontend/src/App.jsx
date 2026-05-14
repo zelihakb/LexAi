@@ -231,31 +231,18 @@ export default function App() {
     handleModeChange("ask");
   };
 
-  const goPetition = () => {
-    handleModeChange("petition");
-  };
-  const goDocument = () => {
-    handleModeChange("document");
-  };
-
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#0B1220] text-[#F8FAFC]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(201,162,39,0.045),transparent_25%),radial-gradient(circle_at_bottom_right,rgba(30,41,59,0.22),transparent_30%)]" />
       <div className="absolute inset-0 bg-[linear-gradient(rgba(201,162,39,0.012)_1px,transparent_1px),linear-gradient(90deg,rgba(201,162,39,0.012)_1px,transparent_1px)] bg-[size:42px_42px] opacity-30" />
 
       <div className="relative z-10">
-        <Navbar
-          onHomeClick={goHome}
-          onPetitionClick={goPetition}
-          onDocumentClick={goDocument}
-        />
+        <Navbar onHomeClick={goHome} />
 
         <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
-          {mode !== "petition" && (
-            <div className="flex justify-center">
-              <ModeToggle mode={mode} setMode={handleModeChange} />
-            </div>
-          )}
+          <div className="flex justify-center">
+            <ModeToggle mode={mode} setMode={handleModeChange} />
+          </div>
 
           {mode === "document" ? (
             <DocumentReader />
