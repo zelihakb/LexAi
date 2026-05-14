@@ -1,6 +1,8 @@
+import json
 import os
 import re
 import time
+
 
 from dotenv import load_dotenv
 
@@ -478,3 +480,357 @@ def generate_petition_with_llm(
         "mode": "petition",
         "petition_text": petition_text,
     }
+# =========================
+# BELGE OKU / GEMINI VISION
+# =========================
+
+DOCUMENT_OCR_WARNING = (
+    "OCR çıktısı otomatik üretilmiştir. Görsel kalitesi, ışık, açı veya yazı tipi nedeniyle "
+    "hatalı ya da eksik olabilir. Lütfen metni kullanmadan önce mutlaka kontrol edin."
+)
+
+DOCUMENT_EXPLAIN_WARNING = (
+    "Bu açıklama hukuki danışmanlık değildir. Yapay zekâ tarafından sadeleştirilmiş bir ön "
+    "değerlendirmedir. Süre, itiraz, dava veya başvuru gibi işlemler için bir avukattan ya da "
+    "yetkili kurumdan destek alınmalıdır."
+)
+
+DOCUMENT_PRIVACY_NOTE = (
+    "Bu belge kişisel veri içerebilir. T.C. kimlik numarası, adres, telefon, dosya numarası "
+    "ve özel bilgiler paylaşılırken dikkatli olunmalıdır."
+)
+class TemporaryLLMServiceError(RuntimeError):
+    pass
+
+
+class LLMFormatError(RuntimeError):
+    pass
+
+
+def is_temporary_llm_error(error: Exception):
+    message = repr(error).lower()
+
+    temporary_markers = [
+        "503",
+        "unavailable",
+        "service unavailable",
+        "overloaded",
+        "temporarily",
+        "try again",
+        "deadline",
+        "timeout",
+        "timed out",
+        "resource_exhausted",
+        "rate limit",
+        "429",
+    ]
+
+    return any(marker in message for marker in temporary_markers)
+
+def build_document_ocr_prompt(document_type: str):
+    return f"""
+Sen dikkatli bir Türkçe OCR asistanısın.
+
+Görev:
+Kullanıcının yüklediği belge görselindeki metni mümkün olduğunca aynen çıkar.
+
+Belge türü:
+{document_type or "Diğer"}
+
+Kurallar:
+- Sadece görselde gördüğün metni yaz.
+- Özetleme yapma.
+- Hukuki yorum yapma.
+- Metinde olmayan bilgi ekleme.
+- Tahmin ederek kanun maddesi, tarih, isim, numara veya kurum adı uydurma.
+- Okuyamadığın yerleri [okunamadı] olarak işaretle.
+- Emin olmadığın kısa parçaları [?] ile işaretle.
+- Sayfa düzenini mümkün olduğunca koru.
+- Başlıkları, numaraları, tarihleri ve imza bölümlerini ayrı satırlarda tut.
+- Kişisel verileri değiştirme veya maskeleme; sadece belgede görünen metni çıkar.
+- Cevabın başına "OCR sonucu" gibi açıklama ekleme.
+- Markdown kod bloğu kullanma.
+
+Çıktı:
+Yalnızca çıkarılan belge metni.
+""".strip()
+
+
+def clean_ocr_text(text: str):
+    text = str(text or "").strip()
+    text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text.strip()
+
+
+def extract_text_from_image_with_gemini(
+    image_bytes: bytes,
+    mime_type: str,
+    document_type: str = "Diğer",
+):
+    if not image_bytes:
+        raise RuntimeError("Görsel verisi boş.")
+
+    client = get_gemini_client()
+    prompt = build_document_ocr_prompt(document_type)
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[
+                prompt,
+                types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=mime_type,
+                ),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=3500,
+            ),
+        )
+    except Exception as e:
+        if is_temporary_llm_error(e):
+            raise TemporaryLLMServiceError(
+                "Gemini OCR servisi şu anda geçici olarak yanıt veremiyor. Lütfen biraz sonra tekrar deneyin."
+            ) from e
+
+        raise
+
+    extracted_text = clean_ocr_text(response.text or "")
+
+    if not extracted_text:
+        raise RuntimeError("Gemini görselden okunabilir metin çıkaramadı.")
+
+    return extracted_text
+def build_document_explain_prompt(text: str, document_type: str):
+    return f"""
+Sen Türkçe hukuki belgeleri sade dille açıklayan dikkatli bir hukuk asistanısın.
+
+Görev:
+Kullanıcının verdiği OCR metnini sade, somut ve anlaşılır dille açıkla.
+
+Belge türü:
+{document_type or "Diğer"}
+
+Kurallar:
+- Bu bir hukuki danışmanlık değildir.
+- Belgedeki somut bilgileri kullan: mahkeme/kurum, belge türü, tarih, konu, talep, ceza, itiraz, duruşma, süre gibi görünen noktaları ayıkla.
+- Genel ve boş ifadeler yazma.
+- Metinde açıkça yazmayan bilgiyi uydurma.
+- Kanun maddesi uydurma.
+- Kesin hak kaybı veya kesin süre varmış gibi konuşma; metinde süre varsa kontrol edilmesi gerektiğini belirt.
+- Kişisel verileri gereksiz yere tekrar etme.
+- OCR hatası olabileceğini dikkate al.
+- Kullanıcıya panik yaptırma; temkinli, sade ve yol gösterici anlat.
+- Olası adımları kesin emir gibi değil, kontrol edilebilecek seçenekler gibi yaz.
+- Sadece geçerli JSON döndür.
+- Markdown kullanma.
+- JSON dışında hiçbir açıklama yazma.
+- Kişinin telefon, adres, T.C. kimlik numarası veya avukat iletişim bilgilerini olası adım olarak yazma.
+- Olası adımlar belgeye özel kontrol listesi gibi olsun: tarih, süre, tebliğ, dosya/karar numarası, itiraz edilen işlem, ekler.
+- "Doğrulayın" gibi genel ifadeleri azalt; bunun yerine neyin neden kontrol edileceğini söyle.
+
+JSON şeması:
+{{
+  "plain_explanation": "Belgenin sade dille 4-7 cümlelik açıklaması.",
+  "important_points": [
+    "Belgeye özel önemli nokta 1",
+    "Belgeye özel önemli nokta 2",
+    "Belgeye özel önemli nokta 3"
+  ],
+  "possible_actions": [
+    "Kontrol edilebilecek olası adım 1",
+    "Kontrol edilebilecek olası adım 2",
+    "Kontrol edilebilecek olası adım 3"
+  ]
+}}
+
+Liste kuralları:
+- important_points en az 3, en fazla 7 madde olsun.
+- possible_actions en az 3, en fazla 6 madde olsun.
+- Her madde belgeye özel olsun.
+- Genel OCR uyarılarını madde listelerini doldurmak için kullanma.
+
+OCR metni:
+{text}
+""".strip()
+
+
+def build_document_explain_repair_prompt(raw_output: str):
+    return f"""
+Aşağıdaki çıktıyı geçerli JSON formatına düzelt.
+
+Kurallar:
+- Sadece JSON döndür.
+- Markdown kullanma.
+- JSON dışında açıklama yazma.
+- Eğer metin yarım kalmışsa anlamlı şekilde tamamla.
+- Listeler belgeye özel, somut ve kullanışlı olsun.
+- Genel OCR uyarılarını liste maddesi olarak tekrar etme.
+
+Şema:
+{{
+  "plain_explanation": "Belgenin sade dille açıklaması",
+  "important_points": [
+    "Belgeye özel önemli nokta"
+  ],
+  "possible_actions": [
+ "Belgede görünen tarih/süre/tebliğ bilgisinin kontrol edilmesi gibi somut olası adım 1",
+  "İtiraz edilen karar, tutanak veya işlem bilgisinin kontrol edilmesi gibi somut olası adım 2",
+  "Eksik belge/ek/vekalet veya başvuru bilgisi varsa kontrol edilmesi gibi somut olası adım 3"
+  ]
+}}
+
+Düzeltilecek çıktı:
+{raw_output}
+""".strip()
+
+
+def _safe_text_list(value, max_items: int = 6):
+    if not isinstance(value, list):
+        return []
+
+    cleaned = []
+
+    for item in value:
+        text = compact_text(item)
+
+        if text:
+            cleaned.append(text[:360])
+
+        if len(cleaned) >= max_items:
+            break
+
+    return cleaned
+
+
+def parse_document_explanation_json(raw_text: str):
+    raw_text = str(raw_text or "").strip()
+
+    if not raw_text:
+        return None
+
+    parsed = parse_json_block(raw_text)
+
+    if isinstance(parsed, dict):
+        return parsed
+
+    cleaned = clean_ocr_text(raw_text)
+
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    first = cleaned.find("{")
+    last = cleaned.rfind("}")
+
+    if first != -1 and last != -1 and last > first:
+        candidate = cleaned[first : last + 1]
+
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+    return None
+
+
+def normalize_document_explanation(parsed: dict):
+    if not isinstance(parsed, dict):
+        raise LLMFormatError(
+            "Gemini belge açıklamasını beklenen JSON formatında döndürmedi. Lütfen tekrar deneyin."
+        )
+
+    plain_explanation = compact_text(parsed.get("plain_explanation", ""))
+    important_points = _safe_text_list(parsed.get("important_points"), max_items=7)
+    possible_actions = _safe_text_list(parsed.get("possible_actions"), max_items=6)
+
+    if not plain_explanation:
+        raise LLMFormatError(
+            "Gemini belge açıklamasını eksik döndürdü. Lütfen tekrar deneyin."
+        )
+
+    if not important_points:
+        important_points = [
+            "Gemini önemli noktaları ayrı liste halinde döndürmedi. OCR metnini kontrol edip tekrar deneyebilirsiniz."
+        ]
+
+    if not possible_actions:
+        possible_actions = [
+            "Gemini olası adımları ayrı liste halinde döndürmedi. Belge metnini kontrol edip tekrar deneyebilirsiniz."
+        ]
+
+    return {
+        "plain_explanation": plain_explanation[:1800],
+        "important_points": important_points,
+        "possible_actions": possible_actions,
+    }
+
+
+def explain_document_text_with_llm(text: str, document_type: str = "Diğer"):
+    clean_text = clean_ocr_text(text)
+
+    if len(clean_text) < 10:
+        raise RuntimeError("Açıklama için yeterli metin yok.")
+
+    prompt = build_document_explain_prompt(
+        text=clean_text[:7000],
+        document_type=document_type,
+    )
+
+    last_error = None
+
+    for attempt in range(1, 4):
+        try:
+            raw = call_gemini(
+                prompt,
+                use_json_format=True,
+                max_output_tokens=1600,
+            )
+
+            parsed = parse_document_explanation_json(raw)
+
+            if isinstance(parsed, dict):
+                return normalize_document_explanation(parsed)
+
+            repair_prompt = build_document_explain_repair_prompt(raw)
+
+            repaired_raw = call_gemini(
+                repair_prompt,
+                use_json_format=True,
+                max_output_tokens=1200,
+            )
+
+            repaired_parsed = parse_document_explanation_json(repaired_raw)
+
+            if isinstance(repaired_parsed, dict):
+                return normalize_document_explanation(repaired_parsed)
+
+            last_error = LLMFormatError(
+                "Gemini belge açıklamasını beklenen JSON formatında döndürmedi."
+            )
+
+        except Exception as e:
+            last_error = e
+
+            if not is_temporary_llm_error(e):
+                time.sleep(0.4 * attempt)
+            else:
+                time.sleep(0.9 * attempt)
+
+    if last_error and is_temporary_llm_error(last_error):
+        raise TemporaryLLMServiceError(
+            "Gemini açıklama servisi şu anda geçici olarak yanıt veremiyor. Lütfen biraz sonra tekrar deneyin."
+        ) from last_error
+
+    if isinstance(last_error, LLMFormatError):
+        raise last_error
+
+    raise RuntimeError("Belge açıklaması üretilemedi. Lütfen tekrar deneyin.") from last_error

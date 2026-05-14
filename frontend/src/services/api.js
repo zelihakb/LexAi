@@ -32,6 +32,27 @@ async function requestJson(path, body) {
   return data;
 }
 
+async function requestFormData(path, formData) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: formData,
+  });
+
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.detail || data?.error || "İstek tamamlanamadı.");
+  }
+
+  return data;
+}
+
 export async function askQuestion(question) {
   return requestJson("/ask", {
     question: String(question || "").trim(),
@@ -62,5 +83,20 @@ export async function createPetition(form = {}) {
     event_summary: String(form.event_summary || "").trim(),
     request_summary: String(form.request_summary || "").trim(),
     extra_notes: String(form.extra_notes || "").trim(),
+  });
+}
+
+export async function ocrDocumentImage(file, documentType = "Diğer") {
+  const formData = new FormData();
+  formData.append("image", file);
+  formData.append("document_type", String(documentType || "Diğer").trim());
+
+  return requestFormData("/document/ocr", formData);
+}
+
+export async function explainDocumentText(text, documentType = "Diğer") {
+  return requestJson("/document/explain", {
+    text: String(text || "").trim(),
+    document_type: String(documentType || "Diğer").trim(),
   });
 }

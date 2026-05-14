@@ -8,6 +8,7 @@ import PetitionSection from "./components/PetitionSection";
 import OwlAssistant from "./components/OwlAssistant";
 import Footer from "./components/Footer";
 import { askQuestion, createPetition, findDecisions } from "./services/api";
+import DocumentReader from "./components/DocumentReader";
 
 import { exampleQueries, helpItems, loadingMessages } from "./data/mockData";
 
@@ -233,6 +234,9 @@ export default function App() {
   const goPetition = () => {
     handleModeChange("petition");
   };
+  const goDocument = () => {
+    handleModeChange("document");
+  };
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#0B1220] text-[#F8FAFC]">
@@ -240,7 +244,11 @@ export default function App() {
       <div className="absolute inset-0 bg-[linear-gradient(rgba(201,162,39,0.012)_1px,transparent_1px),linear-gradient(90deg,rgba(201,162,39,0.012)_1px,transparent_1px)] bg-[size:42px_42px] opacity-30" />
 
       <div className="relative z-10">
-        <Navbar onHomeClick={goHome} onPetitionClick={goPetition} />
+        <Navbar
+          onHomeClick={goHome}
+          onPetitionClick={goPetition}
+          onDocumentClick={goDocument}
+        />
 
         <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
           {mode !== "petition" && (
@@ -249,7 +257,9 @@ export default function App() {
             </div>
           )}
 
-          {mode === "petition" ? (
+          {mode === "document" ? (
+            <DocumentReader />
+          ) : mode === "petition" ? (
             <>
               <PetitionSection
                 form={petitionForm}
