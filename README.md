@@ -322,15 +322,19 @@ Future improvements may include:
 - Expanded automated test coverage.
 - Additional deployment documentation.
 
-## Legal Data and Licensing
+## License
 
-LexAI contains original application code, integrations with third-party services, and references to publicly accessible legal materials.
+LexAI's original application code is licensed under
+the MIT License.
 
-A public software license has not yet been selected.
+Copyright (c) 2026 Zeliha Küçükbayraktar.
 
-Before redistributing code or datasets, the ownership, contributor permissions, and applicable usage rights should be reviewed.
+See [LICENSE](LICENSE) for details.
 
-Third-party libraries and models remain subject to their respective licenses.
+This license does not grant rights to third-party
+models, libraries, external datasets, or legal
+decision archives. Their respective licenses and
+usage conditions apply.
 
 ---
 
