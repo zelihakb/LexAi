@@ -268,9 +268,10 @@ The project has successfully completed its local Vite production build.
 
 ### Continuous Integration
 
-A GitHub Actions workflow is being configured to run backend tests and frontend build checks automatically.
+GitHub Actions automatically runs backend tests and
+frontend production build checks on pushes and pull requests.
 
-CI execution must be verified after pushing the workflow to GitHub.
+The CI workflow has been successfully verified on GitHub.
 
 ## Known Limitations
 
